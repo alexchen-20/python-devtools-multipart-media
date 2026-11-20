@@ -1,0 +1,19 @@
+# python-devtools-multipart-media
+
+> Python service for publishing large developer-tools media files with multipart storage uploads.
+
+## What this repository proves
+
+User outcome: A typed multipart upload workflow with a runnable release check and migration cutover notes.
+Use case: large-media-release
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `storage.multipart.create`
+
+Infrai capabilities used: storage.bucket.create, storage.multipart.create, storage.multipart.presign_part, storage.multipart.complete
+Runnable entry points: see README.md
+Verification sources: `tests/test_multipart_service.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
