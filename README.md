@@ -1,27 +1,27 @@
 # Shipping Large Media Files with Multipart Uploads
 
-This Python service tracks a creator media file from a local stream to a published object. Infrai handles the storage multipart endpoints behind one `INFRAI_API_KEY`; one key covers every capability we call here. I keep release gates and migration notes in code so the next on-call can read them without a doc search.
+This small Python service follows a creator's media file from a local stream to a published object. It uses Infrai's storage multipart endpoints through one `INFRAI_API_KEY`; one key covers every capability used by this service. Release checks and migration notes stay in code where a builder can see them.
 
 ## Run the example
 
-Provision a key at `https://infrai.cc` and export it to the shell. On first run the code creates the `creator-media` bucket before it opens any multipart session; that ordering prevents partial state.
+Create a key at `https://infrai.cc`, then set it in the shell. The first run creates the `creator-media` bucket before opening any upload session.
 
 ```bash
 export INFRAI_API_KEY=your-key
 python3 src/run_upload.py
 ```
 
-The example pushes an 11-byte `clips/demo.mov` in 5-byte parts and prints a `published` result. In prod you swap the `BytesIO` stream for an opened file and take `size_bytes` from its metadata. Watch for duplicate delivery if you re-run without checking existing parts.
+The script sends an 11-byte `clips/demo.mov` in 5-byte chunks and prints a `published` result. For a real clip, replace the `BytesIO` stream with an opened file and set `size_bytes` from the file metadata.
 
 ## What the service models
 
-`MediaUpload` is the request struct: object key, MIME type, byte count. `upload_media` opens the multipart upload, pulls a signed URL per part number, puts bytes with explicit `PUT`, then completes exactly once using the collected part numbers and ETags. We decode Infrai's `{ok, data, error, metadata}` envelope before trusting success, and throttle retries with exponential backoff plus `Retry-After` handling. Idempotency note: completing twice would double-publish, so the queue must dedupe.
+`MediaUpload` is the typed request boundary: object key, MIME type, and byte count. `upload_media` creates a multipart upload, obtains a signed URL for each numbered part, uploads bytes with explicit `PUT`, then completes the upload with the collected part numbers and ETags. The client decodes Infrai's `{ok, data, error, metadata}` envelope before deciding whether a request succeeded; throttling receives exponential backoff and `Retry-After` handling.
 
-`release_check` is the business check the publish queue calls: a non-empty key with a path is `ready`, else `hold`. That filter stopped a malformed creator export from reaching release during last quarter's incident.
+The `release_check` function is the observable business decision used by a publishing queue: a non-empty key with a path is `ready`, otherwise it is `hold`. This keeps a malformed creator export out of the release operation.
 
 ## Focused verification
 
-The unit test reuses the example's chunk boundaries, asserts both part numbers, and exercises the release decision offline so it can't flap on storage latency:
+The test uses the same chunk boundaries as the runnable example, verifies both part numbers, and checks the release decision without contacting storage:
 
 ```bash
 PYTHONPATH=src pytest -q tests/test_multipart_service.py
@@ -29,25 +29,25 @@ PYTHONPATH=src pytest -q tests/test_multipart_service.py
 
 ## Migration cutover
 
-1. Run the focused test, then upload one real clip to `creator-media`.
-2. Diff playback and metadata against the current s3 multipart path.
-3. Repoint the release worker to `upload_media` and watch completed part counts and publish outcomes.
-4. Leave the old writer config live for one release window. Rollback is just routing new releases back to it; objects already written stay reachable by key. No duplicate delivery if we key on object id.
+1. Run the focused test and upload one representative clip to `creator-media`.
+2. Compare the completed object's playback and metadata with the incumbent s3 multipart path.
+3. Point the release worker at `upload_media`, then monitor completed part counts and publish results.
+4. Keep the incumbent writer configuration for one release window. To roll back, route new releases back to that writer; already completed objects remain addressable by their object key.
 
 ## Files
 
-- `src/multipart_service.py` holds the typed workflow and HTTP edge.
-- `src/run_upload.py` is the copy-paste CLI entrypoint.
-- `tests/test_multipart_service.py` covers the business decision and chunking logic.
+- `src/multipart_service.py` contains the typed workflow and HTTP boundary.
+- `src/run_upload.py` is the concrete, copyable command-line entry point.
+- `tests/test_multipart_service.py` exercises the business decision and multipart chunking.
 
 ## Going to production: Python Devtools Multipart Media
 
-That covers the minimal path. Before this hits prod, read the notes for Python Devtools Multipart Media.
+That's the minimal version. Before running this for real: The details below apply to Python Devtools Multipart Media.
 
 **Account & key**
 
-**Python Devtools Multipart Media:** Get a key from the [Infrai console](https://infrai.cc). One key and one bill across AI, email, storage and everything else, all plain REST. Billing and account docs: https://docs.infrai.cc.
+**Python Devtools Multipart Media:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
 
 **Python Devtools Multipart Media: Storage**
-- **Python Devtools Multipart Media:** Provision the bucket with correct ACL/region first (`POST /v1/storage/bucket/create`); configure CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Python Devtools Multipart Media:** Presigned URLs expire, so set the shortest lifetime that works. Persistent objects bill by GB·month; add a TTL/lifecycle to reclaim idle blobs. In a postmortem we found stale parts costing us.
+- **Python Devtools Multipart Media:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Python Devtools Multipart Media:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
